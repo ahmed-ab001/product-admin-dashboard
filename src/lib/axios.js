@@ -31,6 +31,11 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
+    // If request was canceled via AbortController / CancelToken, pass through directly
+    if (axios.isCancel(error)) {
+      return Promise.reject(error);
+    }
+
     if (error.response) {
       const { status } = error.response;
 

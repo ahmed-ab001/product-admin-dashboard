@@ -6,8 +6,8 @@ import apiClient from "@/lib/axios";
  *
  * @returns {Promise<Array<{ slug: string; name: string; url: string }>>}
  */
-export async function getCategories() {
-  const { data } = await apiClient.get("/products/categories");
+export async function getCategories({ signal } = {}) {
+  const { data } = await apiClient.get("/products/categories", { signal });
   return data;
 }
 

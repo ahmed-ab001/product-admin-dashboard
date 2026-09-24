@@ -1,62 +1,126 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useState, useCallback } from "react";
 import Image from "next/image";
 import { useAuth } from "@/context/AuthContext";
-import { getProducts, searchProducts } from "@/services/productService";
+import { useProducts } from "@/hooks/useProducts";
+import { createProduct, updateProduct, deleteProduct } from "@/services/productService";
 import PageWrapper from "@/components/layout/PageWrapper";
+import ProductToolbar from "@/components/products/ProductToolbar";
+import ProductTable from "@/components/products/ProductTable";
+import ProductCardList from "@/components/products/ProductCardList";
+import Pagination from "@/components/products/Pagination";
+import ProductModal from "@/components/products/ProductModal";
+import ProductDetailModal from "@/components/products/ProductDetailModal";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import Toast from "@/components/ui/Toast";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import ErrorState from "@/components/ui/ErrorState";
 import EmptyState from "@/components/ui/EmptyState";
-import Button from "@/components/ui/Button";
 
-export default function ProductsPage() {
+/**
+ * ProductsContent is wrapped in Suspense to safely support Next.js useSearchParams.
+ */
+function ProductsContent() {
   const { user } = useAuth();
-  const [products, setProducts] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const {
+    products,
+    total,
+    totalPages,
+    currentPage,
+    limit,
+    search,
+    searchInput,
+    setSearchInput,
+    category,
+    categories,
+    categoriesLoading,
+    sort,
+    loading,
+    error,
+    showingText,
+    handlePageChange,
+    handleLimitChange,
+    handleCategoryChange,
+    handleSortChange,
+    clearFilters,
+    refetch,
+  } = useProducts();
 
-  // Debounce search query
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedQuery(searchQuery);
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
+  // Local state for modals & CRUD actions
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [detailProduct, setDetailProduct] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [toast, setToast] = useState({ message: "", type: "success" });
 
-  const fetchProducts = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const showToast = useCallback((message, type = "success") => {
+    setToast({ message, type });
+  }, []);
+
+  const handleOpenAddModal = useCallback(() => {
+    setEditingProduct(null);
+    setModalOpen(true);
+  }, []);
+
+  const handleOpenEditModal = useCallback((prod) => {
+    setEditingProduct(prod);
+    setModalOpen(true);
+  }, []);
+
+  const handleOpenDetailModal = useCallback((prod) => {
+    setDetailProduct(prod);
+  }, []);
+
+  const handleOpenDeleteDialog = useCallback((prod) => {
+    setDeleteTarget(prod);
+  }, []);
+
+  const handleSaveProduct = async (formData) => {
+    setActionLoading(true);
     try {
-      const data = debouncedQuery.trim()
-        ? await searchProducts(debouncedQuery.trim(), { limit: 10 })
-        : await getProducts({ limit: 10 });
-      setProducts(data.products || []);
-      setTotal(data.total || 0);
+      if (editingProduct && editingProduct.id) {
+        await updateProduct(editingProduct.id, formData);
+        showToast(`Product "${formData.title}" updated successfully!`, "success");
+      } else {
+        await createProduct(formData);
+        showToast(`Product "${formData.title}" created successfully!`, "success");
+      }
+      setModalOpen(false);
+      refetch();
     } catch (err) {
-      setError(err?.message || "Failed to load products. Please try again.");
+      showToast(err?.message || "Failed to save product", "error");
     } finally {
-      setLoading(false);
+      setActionLoading(false);
     }
-  }, [debouncedQuery]);
+  };
 
-  /* eslint-disable react-hooks/set-state-in-effect */
-  useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setActionLoading(true);
+    try {
+      await deleteProduct(deleteTarget.id);
+      showToast(`Product "${deleteTarget.title}" deleted successfully!`, "success");
+      setDeleteTarget(null);
+      refetch();
+    } catch (err) {
+      showToast(err?.message || "Failed to delete product", "error");
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const displayName =
     user?.firstName && user?.lastName
       ? `${user.firstName} ${user.lastName}`
       : user?.username || "Admin";
 
+  const hasActiveFilters = Boolean(search || category || sort);
+
   return (
-    <PageWrapper className="space-y-6">
-      {/* Header Banner */}
+    <PageWrapper className="space-y-6 pb-12">
+      {/* Header Overview Card */}
       <div className="bg-white rounded-2xl border border-gray-200/80 p-6 sm:p-8 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -70,20 +134,21 @@ export default function ProductsPage() {
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">
-              Welcome back, {displayName}
+              Products Dashboard
             </h1>
             <p className="text-sm text-gray-500 mt-1">
-              Manage your catalog inventory and monitor products in real time.
+              Manage inventory, search across categories, and track stock levels.
             </p>
           </div>
+
           {user?.image && (
-            <div className="flex items-center gap-3 bg-gray-50 p-2 rounded-xl border border-gray-200/60 self-start sm:self-center">
-              <div className="relative w-12 h-12 rounded-lg overflow-hidden bg-indigo-50 border border-indigo-100">
+            <div className="flex items-center gap-3 bg-gray-50/80 p-2.5 rounded-xl border border-gray-200/60 self-start sm:self-center">
+              <div className="relative w-11 h-11 rounded-lg overflow-hidden bg-indigo-50 border border-indigo-100 shrink-0">
                 <Image
                   src={user.image}
                   alt={displayName}
                   fill
-                  sizes="48px"
+                  sizes="44px"
                   className="object-cover"
                   unoptimized
                 />
@@ -97,194 +162,129 @@ export default function ProductsPage() {
             </div>
           )}
         </div>
-
-        {/* Quick Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-gray-100">
-          <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100">
-            <p className="text-xs font-medium text-gray-500">Total Products</p>
-            <p className="text-xl sm:text-2xl font-bold text-gray-900 mt-1">{total}</p>
-          </div>
-          <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100">
-            <p className="text-xs font-medium text-gray-500">Products on Page</p>
-            <p className="text-xl sm:text-2xl font-bold text-gray-900 mt-1">
-              {products.length}
-            </p>
-          </div>
-          <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100">
-            <p className="text-xs font-medium text-gray-500">Auth Status</p>
-            <p className="text-xl sm:text-2xl font-bold text-emerald-600 mt-1">
-              Protected
-            </p>
-          </div>
-          <div className="bg-gray-50/70 p-4 rounded-xl border border-gray-100">
-            <p className="text-xs font-medium text-gray-500">Role</p>
-            <p className="text-xl sm:text-2xl font-bold text-indigo-600 mt-1">
-              Administrator
-            </p>
-          </div>
-        </div>
       </div>
 
-      {/* Products Catalog Section */}
+      {/* Main Catalog Container */}
       <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm overflow-hidden">
         {/* Controls Toolbar */}
-        <div className="p-4 sm:p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Products Catalog</h2>
-            <p className="text-xs text-gray-500">
-              Showing active inventory items from DummyJSON API
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Search Input */}
-            <div className="relative w-full sm:w-64">
-              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
-              </div>
-              <input
-                type="text"
-                id="search-products-input"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search products..."
-                className="w-full pl-9 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:border-indigo-600 transition-colors"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              )}
-            </div>
-
-            <Button
-              variant="secondary"
-              size="md"
-              onClick={fetchProducts}
-              disabled={loading}
-              title="Refresh products list"
-            >
-              <svg
-                className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                />
-              </svg>
-              <span className="hidden md:inline">Refresh</span>
-            </Button>
-          </div>
+        <div className="p-4 sm:p-6 border-b border-gray-100">
+          <ProductToolbar
+            searchInput={searchInput}
+            setSearchInput={setSearchInput}
+            category={category}
+            categories={categories}
+            categoriesLoading={categoriesLoading}
+            sort={sort}
+            limit={limit}
+            onCategoryChange={handleCategoryChange}
+            onSortChange={handleSortChange}
+            onLimitChange={handleLimitChange}
+            onClearFilters={clearFilters}
+            onAddProduct={handleOpenAddModal}
+            total={total}
+            hasActiveFilters={hasActiveFilters}
+          />
         </div>
 
         {/* Content Body */}
         {loading ? (
-          <div className="py-20">
-            <LoadingSpinner size="lg" label="Loading product catalog..." />
+          <div className="py-24">
+            <LoadingSpinner size="lg" label="Updating products catalog..." />
           </div>
         ) : error ? (
           <div className="p-8">
-            <ErrorState message={error} onRetry={fetchProducts} />
+            <ErrorState message={error} onRetry={refetch} />
           </div>
         ) : products.length === 0 ? (
           <div className="p-8">
             <EmptyState
               title="No products found"
               description={
-                searchQuery
-                  ? `No products matched "${searchQuery}". Try a different keyword.`
-                  : "No products available in this category."
+                hasActiveFilters
+                  ? "No products match your current search and filter criteria. Try adjusting or clearing your filters."
+                  : "No products are currently available in the catalog."
               }
+              actionLabel={hasActiveFilters ? "Reset Filters" : undefined}
+              onAction={hasActiveFilters ? clearFilters : undefined}
             />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="bg-gray-50/80 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  <th scope="col" className="py-3.5 px-4 sm:px-6">Product</th>
-                  <th scope="col" className="py-3.5 px-4 hidden md:table-cell">Category</th>
-                  <th scope="col" className="py-3.5 px-4">Price</th>
-                  <th scope="col" className="py-3.5 px-4 hidden sm:table-cell">Stock</th>
-                  <th scope="col" className="py-3.5 px-4 hidden lg:table-cell">Rating</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {products.map((p) => (
-                  <tr key={p.id} className="hover:bg-gray-50/60 transition-colors">
-                    <td className="py-3.5 px-4 sm:px-6">
-                      <div className="flex items-center gap-3">
-                        <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-gray-100 shrink-0 border border-gray-200/50">
-                          {p.thumbnail && (
-                            <Image
-                              src={p.thumbnail}
-                              alt={p.title}
-                              fill
-                              sizes="40px"
-                              className="object-cover"
-                              unoptimized
-                            />
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900 leading-snug line-clamp-1">
-                            {p.title}
-                          </p>
-                          <p className="text-xs text-gray-400 capitalize">
-                            {p.brand || "Standard"}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 hidden md:table-cell">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 capitalize">
-                        {p.category}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 font-semibold text-gray-900">
-                      ${p.price?.toFixed(2)}
-                    </td>
-                    <td className="py-3.5 px-4 hidden sm:table-cell">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                          p.stock > 10
-                            ? "bg-green-50 text-green-700"
-                            : p.stock > 0
-                            ? "bg-amber-50 text-amber-700"
-                            : "bg-red-50 text-red-700"
-                        }`}
-                      >
-                        {p.stock > 0 ? `${p.stock} in stock` : "Out of stock"}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 hidden lg:table-cell text-gray-600 text-xs">
-                      ★ {p.rating?.toFixed(1) || "N/A"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div>
+            {/* Desktop Table View */}
+            <ProductTable
+              products={products}
+              onViewProduct={handleOpenDetailModal}
+              onEditProduct={handleOpenEditModal}
+              onDeleteProduct={handleOpenDeleteDialog}
+            />
+
+            {/* Mobile Cards View */}
+            <ProductCardList
+              products={products}
+              onViewProduct={handleOpenDetailModal}
+              onEditProduct={handleOpenEditModal}
+              onDeleteProduct={handleOpenDeleteDialog}
+            />
+
+            {/* Pagination Controls */}
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              showingText={showingText}
+              onPageChange={handlePageChange}
+              disabled={loading}
+            />
           </div>
         )}
       </div>
+
+      {/* Product Add / Edit Modal */}
+      <ProductModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSubmit={handleSaveProduct}
+        product={editingProduct}
+        categories={categories}
+        loading={actionLoading}
+      />
+
+      {/* Product Details Modal */}
+      <ProductDetailModal
+        isOpen={Boolean(detailProduct)}
+        onClose={() => setDetailProduct(null)}
+        product={detailProduct}
+        onEdit={(prod) => {
+          setDetailProduct(null);
+          handleOpenEditModal(prod);
+        }}
+      />
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmDialog
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleConfirmDelete}
+        title="Delete Product"
+        message={`Are you sure you want to delete "${deleteTarget?.title}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        loading={actionLoading}
+      />
+
+      {/* Toast Feedback Notification */}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        onClose={() => setToast({ message: "", type: "success" })}
+      />
     </PageWrapper>
+  );
+}
+
+export default function ProductsPage() {
+  return (
+    <Suspense fallback={<LoadingSpinner fullPage label="Loading products..." />}>
+      <ProductsContent />
+    </Suspense>
   );
 }
