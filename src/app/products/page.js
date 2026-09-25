@@ -4,6 +4,7 @@ import { Suspense, useState, useCallback } from "react";
 import Image from "next/image";
 import { useAuth } from "@/context/AuthContext";
 import { useProducts } from "@/hooks/useProducts";
+import { useProductMutations } from "@/context/ProductMutationsContext";
 import { createProduct, updateProduct, deleteProduct } from "@/services/productService";
 import PageWrapper from "@/components/layout/PageWrapper";
 import ProductToolbar from "@/components/products/ProductToolbar";
@@ -11,7 +12,6 @@ import ProductTable from "@/components/products/ProductTable";
 import ProductCardList from "@/components/products/ProductCardList";
 import Pagination from "@/components/products/Pagination";
 import ProductModal from "@/components/products/ProductModal";
-import ProductDetailModal from "@/components/products/ProductDetailModal";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Toast from "@/components/ui/Toast";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
@@ -20,9 +20,13 @@ import EmptyState from "@/components/ui/EmptyState";
 
 /**
  * ProductsContent is wrapped in Suspense to safely support Next.js useSearchParams.
+ *
+ * Detail view for individual products is at /products/[id] (a dedicated page).
+ * Edit and Delete actions are handled via modals directly on this list page.
  */
 function ProductsContent() {
   const { user } = useAuth();
+  const { recordAdd, recordEdit, recordDelete } = useProductMutations();
   const {
     products,
     total,
@@ -50,7 +54,6 @@ function ProductsContent() {
   // Local state for modals & CRUD actions
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [detailProduct, setDetailProduct] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [toast, setToast] = useState({ message: "", type: "success" });
@@ -69,26 +72,41 @@ function ProductsContent() {
     setModalOpen(true);
   }, []);
 
-  const handleOpenDetailModal = useCallback((prod) => {
-    setDetailProduct(prod);
-  }, []);
-
   const handleOpenDeleteDialog = useCallback((prod) => {
     setDeleteTarget(prod);
   }, []);
 
+  /**
+   * Save handler for both Add and Edit.
+   *
+   * DummyJSON does not persist mutations server-side.  After a successful API
+   * call we record the change in ProductMutationsContext.  The hook's
+   * applyToList overlay reflects the change instantly in the list — no refetch.
+   */
   const handleSaveProduct = async (formData) => {
+    if (actionLoading) return; // prevent duplicate submissions
     setActionLoading(true);
     try {
       if (editingProduct && editingProduct.id) {
-        await updateProduct(editingProduct.id, formData);
-        showToast(`Product "${formData.title}" updated successfully!`, "success");
+        const updated = await updateProduct(editingProduct.id, formData);
+        const mergedProduct = { ...editingProduct, ...formData, ...updated };
+        recordEdit(editingProduct.id, mergedProduct);
+        showToast(`"${formData.title}" updated successfully!`, "success");
       } else {
-        await createProduct(formData);
-        showToast(`Product "${formData.title}" created successfully!`, "success");
+        const created = await createProduct(formData);
+        const newProduct = {
+          ...formData,
+          id: created.id,
+          thumbnail: created.thumbnail || formData.thumbnail || null,
+          images: created.images || [],
+          rating: formData.rating ?? 0,
+          discountPercentage: 0,
+        };
+        recordAdd(newProduct);
+        showToast(`"${formData.title}" created successfully!`, "success");
       }
       setModalOpen(false);
-      refetch();
+      setEditingProduct(null);
     } catch (err) {
       showToast(err?.message || "Failed to save product", "error");
     } finally {
@@ -96,14 +114,20 @@ function ProductsContent() {
     }
   };
 
+  /**
+   * Delete handler.
+   *
+   * Calls the API then records the deletion locally.  The list updates
+   * instantly via the mutations overlay — no reload or refetch required.
+   */
   const handleConfirmDelete = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || actionLoading) return;
     setActionLoading(true);
     try {
       await deleteProduct(deleteTarget.id);
-      showToast(`Product "${deleteTarget.title}" deleted successfully!`, "success");
+      recordDelete(deleteTarget.id);
+      showToast(`"${deleteTarget.title}" deleted successfully!`, "success");
       setDeleteTarget(null);
-      refetch();
     } catch (err) {
       showToast(err?.message || "Failed to delete product", "error");
     } finally {
@@ -213,7 +237,6 @@ function ProductsContent() {
             {/* Desktop Table View */}
             <ProductTable
               products={products}
-              onViewProduct={handleOpenDetailModal}
               onEditProduct={handleOpenEditModal}
               onDeleteProduct={handleOpenDeleteDialog}
             />
@@ -221,7 +244,6 @@ function ProductsContent() {
             {/* Mobile Cards View */}
             <ProductCardList
               products={products}
-              onViewProduct={handleOpenDetailModal}
               onEditProduct={handleOpenEditModal}
               onDeleteProduct={handleOpenDeleteDialog}
             />
@@ -241,28 +263,24 @@ function ProductsContent() {
       {/* Product Add / Edit Modal */}
       <ProductModal
         isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={() => {
+          if (!actionLoading) {
+            setModalOpen(false);
+            setEditingProduct(null);
+          }
+        }}
         onSubmit={handleSaveProduct}
         product={editingProduct}
         categories={categories}
         loading={actionLoading}
       />
 
-      {/* Product Details Modal */}
-      <ProductDetailModal
-        isOpen={Boolean(detailProduct)}
-        onClose={() => setDetailProduct(null)}
-        product={detailProduct}
-        onEdit={(prod) => {
-          setDetailProduct(null);
-          handleOpenEditModal(prod);
-        }}
-      />
-
       {/* Delete Confirmation Modal */}
       <ConfirmDialog
         isOpen={Boolean(deleteTarget)}
-        onClose={() => setDeleteTarget(null)}
+        onClose={() => {
+          if (!actionLoading) setDeleteTarget(null);
+        }}
         onConfirm={handleConfirmDelete}
         title="Delete Product"
         message={`Are you sure you want to delete "${deleteTarget?.title}"? This action cannot be undone.`}

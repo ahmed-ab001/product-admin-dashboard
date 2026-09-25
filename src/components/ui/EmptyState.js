@@ -5,13 +5,15 @@
  *
  * @param {string} [title='Nothing here yet']
  * @param {string} [description]
- * @param {React.ReactNode} [action]  — Optional CTA rendered below the text.
- * @param {React.ReactNode} [icon]    — Override the default illustration icon.
+ * @param {string} [actionLabel]   — Label for the optional CTA button.
+ * @param {() => void} [onAction]  — Callback for the CTA button.
+ * @param {React.ReactNode} [icon] — Override the default illustration icon.
  */
 export default function EmptyState({
   title = "Nothing here yet",
   description = "There are no items to display at the moment.",
-  action,
+  actionLabel,
+  onAction,
   icon,
 }) {
   return (
@@ -36,7 +38,15 @@ export default function EmptyState({
       </div>
       <h3 className="text-lg font-semibold text-gray-900 mb-1">{title}</h3>
       <p className="text-sm text-gray-500 max-w-sm mb-6">{description}</p>
-      {action && <div>{action}</div>}
+      {actionLabel && onAction && (
+        <button
+          type="button"
+          onClick={onAction}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors"
+        >
+          {actionLabel}
+        </button>
+      )}
     </div>
   );
 }

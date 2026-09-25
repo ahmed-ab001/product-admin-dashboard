@@ -7,6 +7,7 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import axios from "axios";
 import { fetchProductsCatalog } from "@/services/productService";
 import { getCategories } from "@/services/categoryService";
+import { useProductMutations } from "@/context/ProductMutationsContext";
 
 const VALID_LIMITS = [10, 20, 50];
 const VALID_SORTS = [
@@ -45,12 +46,14 @@ function parseUrlParams(searchParams) {
 
 /**
  * Central custom hook managing products catalog state, URL synchronization,
- * search debouncing, AbortController cancellation, categories, and pagination.
+ * search debouncing, AbortController cancellation, categories, pagination,
+ * and local mutation overlays (add/edit/delete) for DummyJSON's non-persistent API.
  */
 export function useProducts() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { applyToList } = useProductMutations();
 
   // Extract normalized state from current URL
   const { page, limit, search, category, sort } = useMemo(
@@ -58,9 +61,9 @@ export function useProducts() {
     [searchParams]
   );
 
-  // Local state
-  const [products, setProducts] = useState([]);
-  const [total, setTotal] = useState(0);
+  // Raw data from the API (before local mutation overlays are applied)
+  const [rawProducts, setRawProducts] = useState([]);
+  const [rawTotal, setRawTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -71,7 +74,7 @@ export function useProducts() {
   const [categories, setCategories] = useState([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
 
-  // Active AbortController to cancel older in-flight requests (prevent race conditions)
+  // Active AbortController to cancel older in-flight requests
   const abortControllerRef = useRef(null);
 
   // Sync search input if URL changes externally (e.g. Back/Forward button)
@@ -159,7 +162,7 @@ export function useProducts() {
   /**
    * Main data fetcher.
    * Cancels in-flight requests using AbortController so old search/filter responses
-   * never overwrite newer responses.
+   * never overwrite newer responses (race-condition prevention).
    */
   const loadProducts = useCallback(async () => {
     // Cancel any previous in-flight request
@@ -183,13 +186,15 @@ export function useProducts() {
         signal: controller.signal,
       });
 
-      setProducts(result.products || []);
-      const totalCount = result.total || 0;
-      setTotal(totalCount);
+      const fetched = result.products || [];
+      const fetchedTotal = result.total || 0;
+
+      setRawProducts(fetched);
+      setRawTotal(fetchedTotal);
 
       // Normalize page if URL page exceeds available total pages
-      const computedTotalPages = Math.ceil(totalCount / limit) || 1;
-      if (page > computedTotalPages && totalCount > 0) {
+      const computedTotalPages = Math.ceil(fetchedTotal / limit) || 1;
+      if (page > computedTotalPages && fetchedTotal > 0) {
         updateUrl({ page: computedTotalPages });
       }
     } catch (err) {
@@ -220,6 +225,13 @@ export function useProducts() {
       }
     };
   }, [loadProducts]);
+
+  // Apply local mutation overlays (add/edit/delete) to the raw fetched data.
+  // This recalculates automatically when mutations change without re-fetching.
+  const { products, total } = useMemo(
+    () => applyToList(rawProducts, rawTotal, { page, limit }),
+    [applyToList, rawProducts, rawTotal, page, limit]
+  );
 
   // Pagination calculation
   const totalPages = Math.max(1, Math.ceil(total / limit) || 1);

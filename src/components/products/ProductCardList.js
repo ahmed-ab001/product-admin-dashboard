@@ -1,13 +1,14 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 
 /**
  * Mobile-optimized product card list with action buttons.
+ * The "View" button and product title link to /products/[id] (dedicated detail page).
  */
 export default function ProductCardList({
   products,
-  onViewProduct,
   onEditProduct,
   onDeleteProduct,
 }) {
@@ -23,8 +24,12 @@ export default function ProductCardList({
             className="p-4 sm:p-5 flex flex-col gap-3 hover:bg-gray-50/50 transition-colors"
           >
             <div className="flex items-start gap-4">
-              {/* Product Thumbnail */}
-              <div className="relative w-20 h-20 rounded-xl bg-gray-100 overflow-hidden shrink-0 border border-gray-200/60 shadow-xs">
+              {/* Product Thumbnail — links to detail page */}
+              <Link
+                href={`/products/${product.id}`}
+                className="relative w-20 h-20 rounded-xl bg-gray-100 overflow-hidden shrink-0 border border-gray-200/60 shadow-xs block"
+                aria-label={`View details for ${product.title}`}
+              >
                 {product.thumbnail ? (
                   <Image
                     src={product.thumbnail}
@@ -39,7 +44,7 @@ export default function ProductCardList({
                     No img
                   </div>
                 )}
-              </div>
+              </Link>
 
               {/* Product Info */}
               <div className="flex-1 min-w-0">
@@ -52,9 +57,12 @@ export default function ProductCardList({
                   </span>
                 </div>
 
-                <h3 className="font-semibold text-gray-900 text-sm mt-1 line-clamp-2 leading-snug">
+                <Link
+                  href={`/products/${product.id}`}
+                  className="block font-semibold text-gray-900 text-sm mt-1 line-clamp-2 leading-snug hover:text-indigo-600 transition-colors"
+                >
                   {product.title}
-                </h3>
+                </Link>
 
                 <div className="flex items-center justify-between mt-3 text-xs">
                   {/* Rating */}
@@ -100,15 +108,15 @@ export default function ProductCardList({
 
             {/* Mobile Actions Toolbar */}
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-50">
-              {onViewProduct && (
-                <button
-                  type="button"
-                  onClick={() => onViewProduct(product)}
-                  className="px-2.5 py-1 text-xs font-medium text-gray-600 hover:text-indigo-600 bg-gray-50 hover:bg-indigo-50 rounded-lg transition-colors"
-                >
-                  View
-                </button>
-              )}
+              {/* View Detail — navigates to /products/[id] */}
+              <Link
+                href={`/products/${product.id}`}
+                className="px-2.5 py-1 text-xs font-medium text-gray-600 hover:text-indigo-600 bg-gray-50 hover:bg-indigo-50 rounded-lg transition-colors"
+                aria-label={`View details for ${product.title}`}
+              >
+                View
+              </Link>
+
               {onEditProduct && (
                 <button
                   type="button"
