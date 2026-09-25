@@ -14,7 +14,7 @@ export default function Navbar() {
 
   const handleLogout = () => {
     logout();
-    router.push("/login");
+    router.replace("/login");
   };
 
   // Build display name from DummyJSON user object.

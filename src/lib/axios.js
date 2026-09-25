@@ -55,13 +55,16 @@ apiClient.interceptors.response.use(
         error.response.data?.error ||
         `Request failed with status ${status}`;
 
-      return Promise.reject(new Error(message));
+      const customError = new Error(message);
+      customError.status = status;
+      customError.response = error.response;
+      return Promise.reject(customError);
     }
 
     if (error.request) {
-      return Promise.reject(
-        new Error("No response from server. Check your internet connection.")
-      );
+      const customError = new Error("No response from server. Check your internet connection.");
+      customError.request = error.request;
+      return Promise.reject(customError);
     }
 
     return Promise.reject(new Error(error.message || "An unexpected error occurred."));

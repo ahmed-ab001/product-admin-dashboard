@@ -66,8 +66,8 @@ function mutationsReducer(state, action) {
       const filteredAdditions = state.additions.filter(
         (p) => String(p.id) !== sid
       );
-      // eslint-disable-next-line no-unused-vars
-      const { [sid]: _removed, ...remainingEdits } = state.edits;
+      const remainingEdits = { ...state.edits };
+      delete remainingEdits[sid];
       return {
         ...state,
         deletions: newDeletions,
@@ -136,9 +136,10 @@ export function ProductMutationsProvider({ children }) {
 
       let products;
       if (page === 1) {
-        // Show additions first, then fill remaining slots from fetched list
-        const remainingSlots = Math.max(0, limit - visibleAdditions.length);
-        products = [...visibleAdditions, ...afterEdit.slice(0, remainingSlots)];
+        // Show additions first (clamped to page limit), then fill remaining slots from fetched list
+        const pageAdditions = visibleAdditions.slice(0, limit);
+        const remainingSlots = Math.max(0, limit - pageAdditions.length);
+        products = [...pageAdditions, ...afterEdit.slice(0, remainingSlots)];
       } else {
         products = afterEdit;
       }
@@ -163,6 +164,21 @@ export function ProductMutationsProvider({ children }) {
     [state]
   );
 
+  /**
+   * Retrieve a locally added product by ID if it exists and hasn't been deleted.
+   */
+  const getAddedProduct = useCallback(
+    (id) => {
+      const sid = String(id);
+      if (state.deletions.has(sid)) return null;
+      const found = state.additions.find((p) => String(p.id) === sid);
+      if (!found) return null;
+      const patch = state.edits[sid];
+      return patch ? { ...found, ...patch } : found;
+    },
+    [state]
+  );
+
   const value = useMemo(
     () => ({
       recordAdd,
@@ -170,9 +186,20 @@ export function ProductMutationsProvider({ children }) {
       recordDelete,
       applyToList,
       applyToProduct,
+      getAddedProduct,
       deletions: state.deletions,
+      additions: state.additions,
     }),
-    [recordAdd, recordEdit, recordDelete, applyToList, applyToProduct, state.deletions]
+    [
+      recordAdd,
+      recordEdit,
+      recordDelete,
+      applyToList,
+      applyToProduct,
+      getAddedProduct,
+      state.deletions,
+      state.additions,
+    ]
   );
 
   return (

@@ -155,8 +155,8 @@ export async function fetchProductsCatalog({
     // Apply sorting
     if (sortBy) {
       filtered.sort((a, b) => {
-        let valA = a[sortBy];
-        let valB = b[sortBy];
+        let valA = a[sortBy] ?? (typeof b[sortBy] === "string" ? "" : 0);
+        let valB = b[sortBy] ?? (typeof a[sortBy] === "string" ? "" : 0);
         if (typeof valA === "string") valA = valA.toLowerCase();
         if (typeof valB === "string") valB = valB.toLowerCase();
         if (valA < valB) return order === "asc" ? -1 : 1;

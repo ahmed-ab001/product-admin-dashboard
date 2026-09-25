@@ -1,7 +1,5 @@
 "use client";
 
-/* eslint-disable react-hooks/set-state-in-effect */
-
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import axios from "axios";
@@ -185,6 +183,11 @@ export function useProducts() {
         sort,
         signal: controller.signal,
       });
+
+      // Guard against race conditions: ignore response if superseded by a newer request
+      if (abortControllerRef.current !== controller) {
+        return;
+      }
 
       const fetched = result.products || [];
       const fetchedTotal = result.total || 0;

@@ -33,7 +33,6 @@ export function AuthProvider({ children }) {
   // route guards can wait before redirecting.
   const [isLoading, setIsLoading] = useState(true);
 
-  /* eslint-disable react-hooks/set-state-in-effect */
   // Hydrate auth state from localStorage on first mount (client only).
   useEffect(() => {
     const storedToken = localStorage.getItem(TOKEN_KEY);
@@ -45,7 +44,6 @@ export function AuthProvider({ children }) {
     }
     setIsLoading(false);
   }, []);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Listen for the auth:logout event dispatched by the Axios 401 interceptor.
   useEffect(() => {

@@ -4,8 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { getProductById } from "@/services/productService";
-import { createProduct, updateProduct, deleteProduct } from "@/services/productService";
+import { getProductById, updateProduct, deleteProduct } from "@/services/productService";
 import { useProductMutations } from "@/context/ProductMutationsContext";
 import { getCategories } from "@/services/categoryService";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
@@ -228,10 +227,23 @@ function DetailSkeleton() {
 export default function ProductDetailPage() {
   const { id } = useParams();
   const router = useRouter();
-  const { applyToProduct, recordEdit, recordDelete } = useProductMutations();
+  const { applyToProduct, recordEdit, recordDelete, getAddedProduct, deletions } =
+    useProductMutations();
 
-  const [rawProduct, setRawProduct] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const numId = parseInt(id, 10);
+  const isInvalidId = !id || isNaN(numId) || numId <= 0;
+  const isLocallyDeleted = deletions ? deletions.has(String(id)) : false;
+
+  // If this product was added locally in this session, initialize with it
+  const initialLocalProduct =
+    !isInvalidId && !isLocallyDeleted && getAddedProduct
+      ? getAddedProduct(id)
+      : null;
+
+  const [rawProduct, setRawProduct] = useState(initialLocalProduct);
+  const [loading, setLoading] = useState(
+    () => !isInvalidId && !isLocallyDeleted && !initialLocalProduct
+  );
   const [notFound, setNotFound] = useState(false);
   const [fetchError, setFetchError] = useState(null);
 
@@ -243,6 +255,15 @@ export default function ProductDetailPage() {
   const [toast, setToast] = useState({ message: "", type: "success" });
 
   const lockRef = useRef(false);
+  const redirectTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current);
+      }
+    };
+  }, []);
 
   const showToast = useCallback((message, type = "success") => {
     setToast({ message, type });
@@ -271,17 +292,11 @@ export default function ProductDetailPage() {
 
   // Fetch the product
   useEffect(() => {
-    const numId = parseInt(id, 10);
-    if (!id || isNaN(numId) || numId <= 0) {
-      setNotFound(true);
-      setLoading(false);
+    if (isInvalidId || isLocallyDeleted || initialLocalProduct) {
       return;
     }
 
     let cancelled = false;
-    setLoading(true);
-    setNotFound(false);
-    setFetchError(null);
 
     getProductById(numId)
       .then((data) => {
@@ -290,11 +305,12 @@ export default function ProductDetailPage() {
       .catch((err) => {
         if (cancelled) return;
         const msg = err?.message || "";
+        const status = err?.status || err?.response?.status;
         // DummyJSON returns a 404 with message "Product with id '...' not found"
         if (
+          status === 404 ||
           msg.toLowerCase().includes("not found") ||
-          msg.includes("404") ||
-          err?.response?.status === 404
+          msg.includes("404")
         ) {
           setNotFound(true);
         } else {
@@ -308,11 +324,10 @@ export default function ProductDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, numId, isInvalidId, isLocallyDeleted, initialLocalProduct]);
 
   // Apply local mutations (edit/delete overlay)
   const product = rawProduct ? applyToProduct(rawProduct) : null;
-  const isLocallyDeleted = rawProduct && !product;
 
   // ── Edit handler ─────────────────────────────────────────────────────────
   const handleSaveEdit = async (formData) => {
@@ -346,7 +361,7 @@ export default function ProductDetailPage() {
       showToast(`"${product.title}" deleted.`, "success");
       setDeleteOpen(false);
       // Navigate back to list after a brief moment so the toast is visible
-      setTimeout(() => router.replace("/products"), 1200);
+      redirectTimerRef.current = setTimeout(() => router.replace("/products"), 1200);
     } catch (err) {
       showToast(err?.message || "Failed to delete product", "error");
       setActionLoading(false);
@@ -355,18 +370,20 @@ export default function ProductDetailPage() {
   };
 
   // ── Render states ─────────────────────────────────────────────────────────
-  if (loading) {
+  const isNotFound = isInvalidId || notFound || isLocallyDeleted;
+
+  if (isNotFound) {
     return (
       <main className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-8">
-        <DetailSkeleton />
+        <ProductNotFound id={id} />
       </main>
     );
   }
 
-  if (notFound || isLocallyDeleted) {
+  if (loading) {
     return (
       <main className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-8">
-        <ProductNotFound id={id} />
+        <DetailSkeleton />
       </main>
     );
   }
